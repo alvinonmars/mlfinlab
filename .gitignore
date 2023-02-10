@@ -10,3 +10,4 @@ cover/
 *.pickle
 */.ipynb_checkpoints/*
 mlfinlab.egg-info/*
+*.coverage.*

@@ -57,8 +57,22 @@ class BaseBars(ABC):
 
         # Batch_run properties
         self.flag = False  # The first flag is false since the first batch doesn't use the cache
+        self.has_buyer_maker_flag = False  # Flag for checking if has flag for buyer maker
+        
+    def set_has_buyer_maker_flag(self, has_buyer_maker: bool):
+        """
+        Sets the flag for checking if has flag for buyer maker.
 
+        :param has_buyer_maker: (bool) Flag for checking if has flag for buyer maker
+        """
+        self.has_buyer_maker_flag = has_buyer_maker
+    def get_has_buyer_maker_flag(self):
+        """
+        Gets the flag for checking if has flag for buyer maker.
 
+        :return: (bool) Flag for checking if has flag for buyer maker
+        """
+        return self.has_buyer_maker_flag
     def batch_run(self, file_path_or_df: Union[str, Iterable[str], pd.DataFrame], verbose: bool = True, to_csv: bool = False,
                   output_path: Optional[str] = None) -> Union[pd.DataFrame, None]:
         """
@@ -251,13 +265,20 @@ class BaseBars(ABC):
              cum_ticks,
              cum_dollar_value])
 
-    def _apply_tick_rule(self, price: float) -> int:
+    def _apply_tick_rule(self, price: float,is_buyer_maker = None) -> int:
         """
         Applies the tick rule as defined on page 29 of Advances in Financial Machine Learning.
 
         :param price: (float) Price at time t
         :return: (int) The signed tick
         """
+        if self.has_buyer_maker_flag is True and is_buyer_maker is not None:
+            if is_buyer_maker:
+                signed_tick = 1
+            else:
+                signed_tick = -1
+            return signed_tick
+        
         if self.prev_price is not None:
             tick_diff = price - self.prev_price
         else:
@@ -351,10 +372,13 @@ class BaseImbalanceBars(BaseBars):
             # Set variables
             date_time = row[0]
             self.tick_num += 1
-            price = np.float(row[1])
+            price = np.float64(row[1])
             volume = row[2]
             dollar_value = price * volume
-            signed_tick = self._apply_tick_rule(price)
+            if self.has_buyer_maker_flag is True:
+                signed_tick = self._apply_tick_rule(price,row[3])
+            else:
+                signed_tick = self._apply_tick_rule(price)
 
             if self.open_price is None:
                 self.open_price = price
@@ -494,10 +518,14 @@ class BaseRunBars(BaseBars):
             # Set variables
             date_time = row[0]
             self.tick_num += 1
-            price = np.float(row[1])
+            price = np.float64(row[1])
             volume = row[2]
             dollar_value = price * volume
-            signed_tick = self._apply_tick_rule(price)
+            
+            if self.has_buyer_maker_flag is True:
+                signed_tick = self._apply_tick_rule(price,row[3])
+            else:
+                signed_tick = self._apply_tick_rule(price)
 
             if self.open_price is None:
                 self.open_price = price

@@ -134,7 +134,9 @@ def mp_pandas_obj(func, pd_obj, num_threads=24, mp_batches=1, lin_mols=True, ver
         return out
 
     for i in out:
-        df0 = df0.append(i)
+        # df0 = df0.append(i)
+        # append is deprecated, use concat instead
+        df0 = pd.concat([df0, i])
 
     df0 = df0.sort_index()
     return df0

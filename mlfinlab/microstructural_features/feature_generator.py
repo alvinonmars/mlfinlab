@@ -160,11 +160,14 @@ class MicrostructuralFeaturesGenerator:
         for row in data.values:
             # Set variables
             date_time = row[0]
-            price = np.float(row[1])
+            price = np.float64(row[1])
             volume = row[2]
             dollar_value = price * volume
-            signed_tick = self._apply_tick_rule(price)
-
+            if self.has_buyer_maker_flag is True:
+                signed_tick = self._apply_tick_rule(price,row[3])
+            else:
+                signed_tick = self._apply_tick_rule(price)
+                
             self.tick_num += 1
 
             # Derivative variables
@@ -300,5 +303,11 @@ class MicrostructuralFeaturesGenerator:
         try:
             pd.to_datetime(test_batch.iloc[0, 0])
         except ValueError:
-            print('csv file, column 0, not a date time format:',
-                  test_batch.iloc[0, 0])
+            print('>'*60)
+            raise ValueError('date_time column in csv not datetime.')
+        #except orther error,print it,then raise it
+        except Exception as e:
+            print('>'*60)
+            print(e)
+            raise e
+

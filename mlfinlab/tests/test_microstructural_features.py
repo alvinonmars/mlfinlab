@@ -172,11 +172,14 @@ class TestMicrostructuralFeatures(unittest.TestCase):
         wrong_price = ['2019-01-30', 'asd', np.int64(5)]
         wrong_volume = ['2019-01-30', 200.00, '1.5']
         too_many_cols = ['2019-01-30', 200.00, np.int64(5), 'Limit order', 'B23']
+        
+        #assert value error is raised when the date is not in the correct format
+        self.assertRaises(ValueError, MicrostructuralFeaturesGenerator._assert_csv, pd.DataFrame(wrong_date).T)
 
         # pylint: disable=protected-access
-        with self.assertWarns(DeprecationWarning):
-            self.assertRaises(ValueError,
-                              MicrostructuralFeaturesGenerator._assert_csv(pd.DataFrame(wrong_date).T))
+        #with self.assertWarns(DeprecationWarning):
+        # self.assertRaises(ValueError,
+        #                       MicrostructuralFeaturesGenerator._assert_csv(pd.DataFrame(wrong_date).T))
         # pylint: disable=protected-access
         self.assertRaises(AssertionError,
                           MicrostructuralFeaturesGenerator._assert_csv,

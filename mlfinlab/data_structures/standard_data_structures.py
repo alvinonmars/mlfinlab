@@ -70,10 +70,13 @@ class StandardBars(BaseBars):
             # Set variables
             date_time = row[0]
             self.tick_num += 1
-            price = np.float(row[1])
+            price = np.float64(row[1])
             volume = row[2]
             dollar_value = price * volume
-            signed_tick = self._apply_tick_rule(price)
+            if self.has_buyer_maker_flag is True:
+                signed_tick = self._apply_tick_rule(price,row[3])
+            else:
+                signed_tick = self._apply_tick_rule(price)
 
             if isinstance(self.threshold, (int, float)):
                 # If the threshold is fixed, it's used for every sampling
@@ -126,8 +129,11 @@ def get_dollar_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], th
     :param output_path: (str) Path to csv file, if to_csv is True
     :return: (pd.DataFrame) Dataframe of dollar bars
     """
-
     bars = StandardBars(metric='cum_dollar_value', threshold=threshold, batch_size=batch_size)
+    if isinstance(file_path_or_df, pd.DataFrame):
+        #check if the dataframe has column 'is_buyer_maker'
+        if 'is_buyer_maker' in file_path_or_df.columns:
+            bars.set_has_buyer_maker_flag(True)
     dollar_bars = bars.batch_run(file_path_or_df=file_path_or_df, verbose=verbose, to_csv=to_csv, output_path=output_path)
     return dollar_bars
 
@@ -152,6 +158,10 @@ def get_volume_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], th
     :return: (pd.DataFrame) Dataframe of volume bars
     """
     bars = StandardBars(metric='cum_volume', threshold=threshold, batch_size=batch_size)
+    if isinstance(file_path_or_df, pd.DataFrame):
+        #check if the dataframe has column 'is_buyer_maker'
+        if 'is_buyer_maker' in file_path_or_df.columns:
+            bars.set_has_buyer_maker_flag(True)
     volume_bars = bars.batch_run(file_path_or_df=file_path_or_df, verbose=verbose, to_csv=to_csv, output_path=output_path)
     return volume_bars
 
@@ -174,5 +184,9 @@ def get_tick_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], thre
     """
     bars = StandardBars(metric='cum_ticks',
                         threshold=threshold, batch_size=batch_size)
+    if isinstance(file_path_or_df, pd.DataFrame):
+        #check if the dataframe has column 'is_buyer_maker'
+        if 'is_buyer_maker' in file_path_or_df.columns:
+            bars.set_has_buyer_maker_flag(True)
     tick_bars = bars.batch_run(file_path_or_df=file_path_or_df, verbose=verbose, to_csv=to_csv, output_path=output_path)
     return tick_bars
