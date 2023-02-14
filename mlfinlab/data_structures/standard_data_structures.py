@@ -52,7 +52,12 @@ class StandardBars(BaseBars):
         """
         self.open_price = None
         self.high_price, self.low_price = -np.inf, np.inf
-        self.cum_statistics = {'cum_ticks': 0, 'cum_dollar_value': 0, 'cum_volume': 0, 'cum_buy_volume': 0}
+        self.cum_statistics = {
+            "cum_ticks": 0,
+            "cum_dollar_value": 0,
+            "cum_volume": 0,
+            "cum_buy_volume": 0,
+        }
 
     def _extract_bars(self, data: Union[list, tuple, np.ndarray]) -> list:
         """
@@ -68,13 +73,14 @@ class StandardBars(BaseBars):
 
         for row in data:
             # Set variables
+            # print(f"type of row[0]: {type(row[0])} {__file__}")
             date_time = row[0]
             self.tick_num += 1
             price = np.float64(row[1])
             volume = row[2]
             dollar_value = price * volume
             if self.has_buyer_maker_flag is True:
-                signed_tick = self._apply_tick_rule(price,row[3])
+                signed_tick = self._apply_tick_rule(price, row[3])
             else:
                 signed_tick = self._apply_tick_rule(price)
 
@@ -84,7 +90,9 @@ class StandardBars(BaseBars):
             else:
                 # If the threshold is changing, then the threshold defined just before
                 # sampling time is used
-                threshold = self.threshold.iloc[self.threshold.index.get_loc(date_time, method='pad')]
+                threshold = self.threshold.iloc[
+                    self.threshold.index.get_loc(date_time, method="pad")
+                ]
 
             if self.open_price is None:
                 self.open_price = price
@@ -93,24 +101,34 @@ class StandardBars(BaseBars):
             self.high_price, self.low_price = self._update_high_low(price)
 
             # Calculations
-            self.cum_statistics['cum_ticks'] += 1
-            self.cum_statistics['cum_dollar_value'] += dollar_value
-            self.cum_statistics['cum_volume'] += volume
+            self.cum_statistics["cum_ticks"] += 1
+            self.cum_statistics["cum_dollar_value"] += dollar_value
+            self.cum_statistics["cum_volume"] += volume
             if signed_tick == 1:
-                self.cum_statistics['cum_buy_volume'] += volume
+                self.cum_statistics["cum_buy_volume"] += volume
 
             # If threshold reached then take a sample
-            if self.cum_statistics[self.metric] >= threshold:  # pylint: disable=eval-used
-                self._create_bars(date_time, price,
-                                  self.high_price, self.low_price, list_bars)
+            if (
+                self.cum_statistics[self.metric] >= threshold
+            ):  # pylint: disable=eval-used
+                # print(f"type of date_time: {type(date_time)} {__file__}")
+                self._create_bars(
+                    date_time, price, self.high_price, self.low_price, list_bars
+                )
 
                 # Reset cache
                 self._reset_cache()
         return list_bars
 
 
-def get_dollar_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], threshold: Union[float, pd.Series] = 70000000,
-                    batch_size: int = 20000000, verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None):
+def get_dollar_bars(
+    file_path_or_df: Union[str, Iterable[str], pd.DataFrame],
+    threshold: Union[float, pd.Series] = 70000000,
+    batch_size: int = 20000000,
+    verbose: bool = True,
+    to_csv: bool = False,
+    output_path: Optional[str] = None,
+):
     """
     Creates the dollar bars: date_time, open, high, low, close, volume, cum_buy_volume, cum_ticks, cum_dollar_value.
 
@@ -129,45 +147,69 @@ def get_dollar_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], th
     :param output_path: (str) Path to csv file, if to_csv is True
     :return: (pd.DataFrame) Dataframe of dollar bars
     """
-    bars = StandardBars(metric='cum_dollar_value', threshold=threshold, batch_size=batch_size)
+    bars = StandardBars(
+        metric="cum_dollar_value", threshold=threshold, batch_size=batch_size
+    )
     if isinstance(file_path_or_df, pd.DataFrame):
-        #check if the dataframe has column 'is_buyer_maker'
-        if 'is_buyer_maker' in file_path_or_df.columns:
+        # check if the dataframe has column 'is_buyer_maker'
+        if "is_buyer_maker" in file_path_or_df.columns:
             bars.set_has_buyer_maker_flag(True)
-    dollar_bars = bars.batch_run(file_path_or_df=file_path_or_df, verbose=verbose, to_csv=to_csv, output_path=output_path)
+    dollar_bars = bars.batch_run(
+        file_path_or_df=file_path_or_df,
+        verbose=verbose,
+        to_csv=to_csv,
+        output_path=output_path,
+    )
     return dollar_bars
 
 
-def get_volume_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], threshold: Union[float, pd.Series] = 70000000,
-                    batch_size: int = 20000000, verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None):
+def get_volume_bars(
+    file_path_or_df: Union[str, Iterable[str], pd.DataFrame],
+    threshold: Union[float, pd.Series] = 70000000,
+    batch_size: int = 20000000,
+    verbose: bool = True,
+    to_csv: bool = False,
+    output_path: Optional[str] = None,
+):
     """
-    Creates the volume bars: date_time, open, high, low, close, volume, cum_buy_volume, cum_ticks, cum_dollar_value.
+       Creates the volume bars: date_time, open, high, low, close, volume, cum_buy_volume, cum_ticks, cum_dollar_value.
+    date_time = row[0].timestamp()  # Convert to UTC timestamp
+       Following the paper "The Volume Clock: Insights into the high frequency paradigm" by Lopez de Prado, et al,
+       it is suggested that using 1/50 of the average daily volume, would result in more desirable statistical properties.
 
-    Following the paper "The Volume Clock: Insights into the high frequency paradigm" by Lopez de Prado, et al,
-    it is suggested that using 1/50 of the average daily volume, would result in more desirable statistical properties.
-
-    :param file_path_or_df: (str, iterable of str, or pd.DataFrame) Path to the csv file(s) or Pandas Data Frame containing raw tick data
-                            in the format[date_time, price, volume]
-    :param threshold: (float, or pd.Series) A cumulative value above this threshold triggers a sample to be taken.
-                      If a series is given, then at each sampling time the closest previous threshold is used.
-                      (Values in the series can only be at times when the threshold is changed, not for every observation)
-    :param batch_size: (int) The number of rows per batch. Less RAM = smaller batch size.
-    :param verbose: (bool) Print out batch numbers (True or False)
-    :param to_csv: (bool) Save bars to csv after every batch run (True or False)
-    :param output_path: (str) Path to csv file, if to_csv is True
-    :return: (pd.DataFrame) Dataframe of volume bars
+       :param file_path_or_df: (str, iterable of str, or pd.DataFrame) Path to the csv file(s) or Pandas Data Frame containing raw tick data
+                               in the format[date_time, price, volume]
+       :param threshold: (float, or pd.Series) A cumulative value above this threshold triggers a sample to be taken.
+                         If a series is given, then at each sampling time the closest previous threshold is used.
+                         (Values in the series can only be at times when the threshold is changed, not for every observation)
+       :param batch_size: (int) The number of rows per batch. Less RAM = smaller batch size.
+       :param verbose: (bool) Print out batch numbers (True or False)
+       :param to_csv: (bool) Save bars to csv after every batch run (True or False)
+       :param output_path: (str) Path to csv file, if to_csv is True
+       :return: (pd.DataFrame) Dataframe of volume bars
     """
-    bars = StandardBars(metric='cum_volume', threshold=threshold, batch_size=batch_size)
+    bars = StandardBars(metric="cum_volume", threshold=threshold, batch_size=batch_size)
     if isinstance(file_path_or_df, pd.DataFrame):
-        #check if the dataframe has column 'is_buyer_maker'
-        if 'is_buyer_maker' in file_path_or_df.columns:
+        # check if the dataframe has column 'is_buyer_maker'
+        if "is_buyer_maker" in file_path_or_df.columns:
             bars.set_has_buyer_maker_flag(True)
-    volume_bars = bars.batch_run(file_path_or_df=file_path_or_df, verbose=verbose, to_csv=to_csv, output_path=output_path)
+    volume_bars = bars.batch_run(
+        file_path_or_df=file_path_or_df,
+        verbose=verbose,
+        to_csv=to_csv,
+        output_path=output_path,
+    )
     return volume_bars
 
 
-def get_tick_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], threshold: Union[float, pd.Series] = 70000000,
-                  batch_size: int = 20000000, verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None):
+def get_tick_bars(
+    file_path_or_df: Union[str, Iterable[str], pd.DataFrame],
+    threshold: Union[float, pd.Series] = 70000000,
+    batch_size: int = 20000000,
+    verbose: bool = True,
+    to_csv: bool = False,
+    output_path: Optional[str] = None,
+):
     """
     Creates the tick bars: date_time, open, high, low, close, volume, cum_buy_volume, cum_ticks, cum_dollar_value.
 
@@ -182,11 +224,15 @@ def get_tick_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], thre
     :param output_path: (str) Path to csv file, if to_csv is True
     :return: (pd.DataFrame) Dataframe of volume bars
     """
-    bars = StandardBars(metric='cum_ticks',
-                        threshold=threshold, batch_size=batch_size)
+    bars = StandardBars(metric="cum_ticks", threshold=threshold, batch_size=batch_size)
     if isinstance(file_path_or_df, pd.DataFrame):
-        #check if the dataframe has column 'is_buyer_maker'
-        if 'is_buyer_maker' in file_path_or_df.columns:
+        # check if the dataframe has column 'is_buyer_maker'
+        if "is_buyer_maker" in file_path_or_df.columns:
             bars.set_has_buyer_maker_flag(True)
-    tick_bars = bars.batch_run(file_path_or_df=file_path_or_df, verbose=verbose, to_csv=to_csv, output_path=output_path)
+    tick_bars = bars.batch_run(
+        file_path_or_df=file_path_or_df,
+        verbose=verbose,
+        to_csv=to_csv,
+        output_path=output_path,
+    )
     return tick_bars

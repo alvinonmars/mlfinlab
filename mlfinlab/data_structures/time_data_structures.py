@@ -31,8 +31,16 @@ class TimeBars(BaseBars):
         BaseBars.__init__(self, metric=None, batch_size=batch_size)
 
         # Threshold at which to sample (in seconds)
-        self.time_bar_thresh_mapping = {'D': 86400, 'H': 3600, 'MIN': 60, 'S': 1}  # Number of seconds
-        assert resolution in self.time_bar_thresh_mapping, "{} resolution is not implemented".format(resolution)
+        self.time_bar_thresh_mapping = {
+            "D": 86400000,
+            "H": 3600000,
+            "MIN": 60000,
+            "S": 1000,
+            "MS": 1,
+        }  # Number of seconds
+        assert (
+            resolution in self.time_bar_thresh_mapping
+        ), "{} resolution is not implemented".format(resolution)
         self.resolution = resolution  # Type of bar resolution: 'D', 'H', 'MIN', 'S'
         self.num_units = num_units  # Number of days/minutes/...
         self.threshold = self.num_units * self.time_bar_thresh_mapping[self.resolution]
@@ -45,7 +53,12 @@ class TimeBars(BaseBars):
         self.open_price = None
         self.close_price = None
         self.high_price, self.low_price = -np.inf, np.inf
-        self.cum_statistics = {'cum_ticks': 0, 'cum_dollar_value': 0, 'cum_volume': 0, 'cum_buy_volume': 0}
+        self.cum_statistics = {
+            "cum_ticks": 0,
+            "cum_dollar_value": 0,
+            "cum_volume": 0,
+            "cum_buy_volume": 0,
+        }
 
     def _extract_bars(self, data: Union[list, tuple, np.ndarray]) -> list:
         """
@@ -61,15 +74,20 @@ class TimeBars(BaseBars):
 
         for row in data:
             # Set variables
+
             date_time = row[0].timestamp()  # Convert to UTC timestamp
+            # print(
+            #     f"rowp[0]: {row[0]}],type: {type(row[0])} data: {date_time} type: {type(date_time)}"
+            # )
             self.tick_num += 1
             price = np.float64(row[1])
             volume = row[2]
             dollar_value = price * volume
             signed_tick = self._apply_tick_rule(price)
 
-            timestamp_threshold = (int(
-                float(date_time)) // self.threshold + 1) * self.threshold  # Current tick boundary timestamp
+            timestamp_threshold = (
+                int(float(date_time) * 1000) // self.threshold + 1
+            ) * self.threshold  # Current tick boundary timestamp
 
             # Init current bar timestamp with first ticks boundary timestamp
             if self.timestamp is None:
@@ -77,8 +95,13 @@ class TimeBars(BaseBars):
             # Bar generation condition
             # Current ticks bar timestamp differs from current bars timestamp
             elif self.timestamp < timestamp_threshold:
-                self._create_bars(self.timestamp, self.close_price,
-                                  self.high_price, self.low_price, list_bars)
+                self._create_bars(
+                    self.timestamp,
+                    self.close_price,
+                    self.high_price,
+                    self.low_price,
+                    list_bars,
+                )
 
                 # Reset cache
                 self._reset_cache()
@@ -95,17 +118,24 @@ class TimeBars(BaseBars):
             self.close_price = price
 
             # Calculations
-            self.cum_statistics['cum_ticks'] += 1
-            self.cum_statistics['cum_dollar_value'] += dollar_value
-            self.cum_statistics['cum_volume'] += volume
+            self.cum_statistics["cum_ticks"] += 1
+            self.cum_statistics["cum_dollar_value"] += dollar_value
+            self.cum_statistics["cum_volume"] += volume
             if signed_tick == 1:
-                self.cum_statistics['cum_buy_volume'] += volume
+                self.cum_statistics["cum_buy_volume"] += volume
 
         return list_bars
 
 
-def get_time_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], resolution: str = 'D', num_units: int = 1, batch_size: int = 20000000,
-                  verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None):
+def get_time_bars(
+    file_path_or_df: Union[str, Iterable[str], pd.DataFrame],
+    resolution: str = "D",
+    num_units: int = 1,
+    batch_size: int = 20000000,
+    verbose: bool = True,
+    to_csv: bool = False,
+    output_path: Optional[str] = None,
+):
     """
     Creates Time Bars: date_time, open, high, low, close, volume, cum_buy_volume, cum_ticks, cum_dollar_value.
 
@@ -121,5 +151,10 @@ def get_time_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], reso
     """
 
     bars = TimeBars(resolution=resolution, num_units=num_units, batch_size=batch_size)
-    time_bars = bars.batch_run(file_path_or_df=file_path_or_df, verbose=verbose, to_csv=to_csv, output_path=output_path)
+    time_bars = bars.batch_run(
+        file_path_or_df=file_path_or_df,
+        verbose=verbose,
+        to_csv=to_csv,
+        output_path=output_path,
+    )
     return time_bars
