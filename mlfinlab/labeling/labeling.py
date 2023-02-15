@@ -62,9 +62,7 @@ def apply_pt_sl_on_t1(close, events, pt_sl, molecule):  # pragma: no cover
         out.at[loc, "pt"] = cum_returns[
             cum_returns > profit_taking[loc]
         ].index.min()  # Earliest profit taking date
-        print(
-            f"loc: {loc},vertical_barrier:{vertical_barrier} cum_returns: {cum_returns}, sl: {out['sl'][loc]} pt: {out['pt'][loc]}"
-        )
+
     return out
 
 
@@ -175,10 +173,6 @@ def get_events(
         {"t1": vertical_barrier_times, "trgt": target, "side": side_}, axis=1
     )
     events = events.dropna(subset=["trgt"])
-    print(
-        f"---> len(vertical_barrier_times) = {len(vertical_barrier_times)} len t1 = {len(events['t1'])}"
-    )
-    print(f"events['t1']: {events['t1']}")
     # Apply Triple Barrier
     first_touch_dates = mp_pandas_obj(
         func=apply_pt_sl_on_t1,

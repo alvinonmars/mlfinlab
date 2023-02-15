@@ -45,6 +45,10 @@ class TimeBars(BaseBars):
         self.num_units = num_units  # Number of days/minutes/...
         self.threshold = self.num_units * self.time_bar_thresh_mapping[self.resolution]
         self.timestamp = None  # Current bar timestamp
+        self.prev_timestamp = None
+        self.expect_current_timestamp = None
+        self.lost_samples = 0
+        self.prev_close = None
 
     def _reset_cache(self):
         """
@@ -72,13 +76,20 @@ class TimeBars(BaseBars):
         # Iterate over rows
         list_bars = []
 
+        deg = False
+
         for row in data:
             # Set variables
 
             date_time = row[0].timestamp()  # Convert to UTC timestamp
+            # deg = True if date_time > 2023-01-01 00:01:10 and date_time < 2023-01-01 00:01:12.00 else False
+            if date_time > 1672531271 and date_time < 1672531272:
+                deg = True
             # print(
             #     f"rowp[0]: {row[0]}],type: {type(row[0])} data: {date_time} type: {type(date_time)}"
             # )
+            # if deg:
+            #     print(f"data+time: {date_time} row[0]: {row[0]}")
             self.tick_num += 1
             price = np.float64(row[1])
             volume = row[2]
@@ -89,12 +100,62 @@ class TimeBars(BaseBars):
                 int(float(date_time) * 1000) // self.threshold + 1
             ) * self.threshold  # Current tick boundary timestamp
 
+            # if deg:
+            #     print(
+            #         f"date_time:{date_time} timestamp_threshold: {timestamp_threshold} self.timestamp: {self.timestamp}"
+            #     )
+
             # Init current bar timestamp with first ticks boundary timestamp
             if self.timestamp is None:
                 self.timestamp = timestamp_threshold
+                self.prev_timestamp = self.timestamp - self.threshold
+
             # Bar generation condition
             # Current ticks bar timestamp differs from current bars timestamp
             elif self.timestamp < timestamp_threshold:
+                if (self.prev_timestamp + self.threshold) != self.timestamp:
+                    prev_ms = self.prev_timestamp
+                    curr_ms = self.timestamp
+                    lost_samples = (curr_ms - prev_ms - self.threshold) / self.threshold
+                    assert lost_samples > 0
+
+                    self.lost_samples += lost_samples
+                    if self.lost_samples % 10000 == 0:
+                        print(
+                            f"threshold:{self.threshold} prev_timestamp: {self.prev_timestamp} timestamp: {self.timestamp} timestamp_threshold:{timestamp_threshold} lost: {(curr_ms-prev_ms)/self.threshold} {prev_ms- curr_ms} ms lost_samples: {self.lost_samples} tick_num: {self.tick_num} {self.lost_samples/self.tick_num}"
+                        )
+                    # fill lost_samples with the last bar
+                    for i in range(int(lost_samples)):
+                        self.prev_timestamp += self.threshold
+                        self.tick_num += 1
+                        list_bars.append(
+                            [
+                                self.prev_timestamp,
+                                self.tick_num,
+                                self.prev_close,
+                                self.prev_close,
+                                self.prev_close,
+                                self.prev_close,
+                                0,
+                                0,
+                                0,
+                                0,
+                            ]
+                        )
+                if (self.prev_timestamp + self.threshold) != self.timestamp:
+                    print(
+                        "--------------------------------------- double check--------------------------"
+                    )
+                    prev_ms = self.prev_timestamp
+                    curr_ms = self.timestamp
+                    lost_samples = (curr_ms - prev_ms) / self.threshold
+                    self.lost_samples += lost_samples
+
+                    print(
+                        f"threshold:{self.threshold} prev_timestamp: {self.prev_timestamp} timestamp: {self.timestamp} lost: {(curr_ms-prev_ms)/self.threshold} {prev_ms- curr_ms} ms lost_samples: {self.lost_samples} tick_num: {self.tick_num} {self.lost_samples/self.tick_num}"
+                    )
+                    if self.lost_samples > 5:
+                        exit(-1)
                 self._create_bars(
                     self.timestamp,
                     self.close_price,
@@ -102,7 +163,8 @@ class TimeBars(BaseBars):
                     self.low_price,
                     list_bars,
                 )
-
+                self.prev_timestamp = self.timestamp
+                self.prev_close = self.close_price
                 # Reset cache
                 self._reset_cache()
                 self.timestamp = timestamp_threshold  # Current bar timestamp update
@@ -156,5 +218,8 @@ def get_time_bars(
         verbose=verbose,
         to_csv=to_csv,
         output_path=output_path,
+    )
+    print(
+        f"threshold:{bars.threshold} lost_samples: {bars.lost_samples} tick_num: {bars.tick_num} {bars.lost_samples/bars.tick_num}"
     )
     return time_bars
