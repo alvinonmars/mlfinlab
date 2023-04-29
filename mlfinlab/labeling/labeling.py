@@ -172,6 +172,7 @@ def get_events(
     events = pd.concat(
         {"t1": vertical_barrier_times, "trgt": target, "side": side_}, axis=1
     )
+    print(f"events before dropna: {events.shape}")
     events = events.dropna(subset=["trgt"])
     # Apply Triple Barrier
     first_touch_dates = mp_pandas_obj(
@@ -183,7 +184,7 @@ def get_events(
         pt_sl=pt_sl_,
         verbose=verbose,
     )
-
+    print(f"events after dropna: {events.shape} and first_touch_dates: {first_touch_dates.shape}")
     for ind in events.index:
         events.at[ind, "t1"] = first_touch_dates.loc[ind, :].dropna().min()
 
@@ -269,6 +270,8 @@ def get_bins(triple_barrier_events, close):
     # 2) Create out DataFrame
     out_df = pd.DataFrame(index=events_.index)
     # Need to take the log returns, else your results will be skewed for short positions
+    out_df["t0"] = events_.index
+    out_df["t1"] = events_["t1"]
     out_df["ret"] = np.log(prices.loc[events_["t1"].array].array) - np.log(
         prices.loc[events_.index]
     )

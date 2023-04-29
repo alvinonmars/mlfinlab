@@ -175,6 +175,118 @@ def cusum_filter3(raw_time_series, threshold, time_stamps=True):
     return t_events, t_neg, t_pos
 
 
+
+def cusum_filter32(raw_time_series, threshold, time_stamps=True):
+    t_events = []
+    t_pos = []
+    t_neg = []
+
+    s_pos = 0
+    s_neg = 0
+
+    # log returns
+    raw_time_series = pd.DataFrame(raw_time_series)  # Convert to DataFrame
+    raw_time_series.columns = ["price"]
+    if isinstance(threshold, (float, int)):
+        raw_time_series["threshold"] = threshold
+    elif isinstance(threshold, pd.Series):
+        raw_time_series.loc[threshold.index, "threshold"] = threshold
+    else:
+        raise ValueError("threshold is neither float nor pd.Series!")
+    raw_time_series['last_cusum_ts'] = raw_time_series.index[0]
+
+    # raw_time_series = raw_time_series.iloc[1:]  # Drop first na values
+
+    # Get event time stamps for the entire series
+    prev_ev_ts = raw_time_series.index[0]
+    for i in range(1, len(raw_time_series)):
+        
+        raw_time_series.last_cusum_ts[i] = prev_ev_ts #raw_time_series.last_cusum_ts[i-1]
+
+        thresh = raw_time_series.threshold[i]
+        log_ret = np.log(raw_time_series.price[i]) - np.log(
+            raw_time_series.price[i - 1]
+        )
+
+        pos = float(s_pos + log_ret)
+        neg = float(s_neg + log_ret)
+        s_pos = max(0.0, pos)
+        s_neg = min(0.0, neg)
+
+        if s_neg < -thresh:
+            s_neg = 0
+            t_events.append(raw_time_series.index[i])
+            t_neg.append(raw_time_series.index[i])
+            #raw_time_series.last_cusum_ts[i] = raw_time_series.index[i]
+            prev_ev_ts = raw_time_series.index[i]
+
+        elif s_pos > thresh:
+            s_pos = 0
+            t_events.append(raw_time_series.index[i])
+            t_pos.append(raw_time_series.index[i])
+            #raw_time_series.last_cusum_ts[i] = raw_time_series.index[i]
+            prev_ev_ts = raw_time_series.index[i]
+
+    # Return DatetimeIndex or list
+    if time_stamps:
+        event_timestamps = pd.DatetimeIndex(t_events)
+        neg_timestamps = pd.DatetimeIndex(t_neg)
+        pos_timestamps = pd.DatetimeIndex(t_pos)
+        return event_timestamps, t_neg, t_pos,raw_time_series['last_cusum_ts']
+    return t_events, t_neg, t_pos,raw_time_series['last_cusum_ts']
+
+
+
+
+def cusum_filter4(raw_time_series, mean_window='20min', std_window='20min', z_score=3,  time_stamps=True):
+    t_events = []
+    t_pos = []
+    t_neg = []
+
+    s_pos = 0
+    s_neg = 0
+
+    # log returns
+    raw_time_series = pd.DataFrame(raw_time_series)  # Convert to DataFrame
+    raw_time_series.columns = ["price"]
+    #target = df["vwap"].rolling(window).std() / df["vwap"].rolling(window).mean()
+
+    raw_time_series["threshold"] = (raw_time_series.price.rolling(window=std_window).std()* z_score) / raw_time_series.price.rolling(window=mean_window).mean() 
+    # raw_time_series = raw_time_series.iloc[1:]  # Drop first na values
+
+    # Get event time stamps for the entire series
+    for i in range(1, len(raw_time_series)):
+        thresh = raw_time_series.threshold[i]
+        log_ret = np.log(raw_time_series.price[i]) - np.log(
+            raw_time_series.price[i - 1]
+        )
+
+        pos = float(s_pos + log_ret)
+        neg = float(s_neg + log_ret)
+        s_pos = max(0.0, pos)
+        s_neg = min(0.0, neg)
+
+        if s_neg < -thresh:
+            s_neg = 0
+            t_events.append(raw_time_series.index[i])
+            t_neg.append(raw_time_series.index[i])
+
+        elif s_pos > thresh:
+            s_pos = 0
+            t_events.append(raw_time_series.index[i])
+            t_pos.append(raw_time_series.index[i])
+
+    # Return DatetimeIndex or list
+    if time_stamps:
+        event_timestamps = pd.DatetimeIndex(t_events)
+        neg_timestamps = pd.DatetimeIndex(t_neg)
+        pos_timestamps = pd.DatetimeIndex(t_pos)
+        return event_timestamps, neg_timestamps, pos_timestamps
+
+    return t_events, t_neg, t_pos
+
+
+
 def z_score_filter(
     raw_time_series, mean_window, std_window, z_score=3, time_stamps=True
 ):

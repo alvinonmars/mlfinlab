@@ -76,6 +76,7 @@ class BaseBars(ABC):
         :param has_buyer_maker: (bool) Flag for checking if has flag for buyer maker
         """
         self.has_buyer_maker_flag = has_buyer_maker
+        
 
     def get_has_buyer_maker_flag(self):
         """
