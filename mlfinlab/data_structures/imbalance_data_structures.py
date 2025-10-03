@@ -41,7 +41,7 @@ class EMAImbalanceBars(BaseImbalanceBars):
 
     def __init__(self, metric: str, num_prev_bars: int,
                  expected_imbalance_window: int, exp_num_ticks_init: int,
-                 exp_num_ticks_constraints: List, batch_size: int, analyse_thresholds: bool):
+                 exp_num_ticks_constraints: List, batch_size: int, analyse_thresholds: bool, enable_footprint: bool = False):
         """
         Constructor
 
@@ -53,9 +53,10 @@ class EMAImbalanceBars(BaseImbalanceBars):
         :param batch_size: (int) Number of rows to read in from the csv, per batch
         :param analyse_thresholds: (bool) flag to return thresholds values (theta, exp_num_ticks, exp_imbalance) in a
                                           form of Pandas DataFrame
+        :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
         """
         BaseImbalanceBars.__init__(self, metric, batch_size, expected_imbalance_window,
-                                   exp_num_ticks_init, analyse_thresholds)
+                                   exp_num_ticks_init, analyse_thresholds, enable_footprint)
 
         # EMA Imbalance specific  hyper parameters
         self.num_prev_bars = num_prev_bars
@@ -84,7 +85,7 @@ class ConstImbalanceBars(BaseImbalanceBars):
 
     def __init__(self, metric: str, expected_imbalance_window: int,
                  exp_num_ticks_init: int, batch_size: int,
-                 analyse_thresholds: bool):
+                 analyse_thresholds: bool, enable_footprint: bool = False):
         """
         Constructor
 
@@ -93,10 +94,11 @@ class ConstImbalanceBars(BaseImbalanceBars):
         :param exp_num_ticks_init: (int) Initial number of expected ticks
         :param batch_size: (int) Number of rows to read in from the csv, per batch
         :param analyse_thresholds: (bool) Flag to save  and return thresholds used to sample imbalance bars
+        :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
         """
         BaseImbalanceBars.__init__(self, metric, batch_size, expected_imbalance_window,
                                    exp_num_ticks_init,
-                                   analyse_thresholds)
+                                   analyse_thresholds, enable_footprint)
 
     def _get_exp_num_ticks(self):
         return self.thresholds['exp_num_ticks']
@@ -105,13 +107,13 @@ class ConstImbalanceBars(BaseImbalanceBars):
 def get_ema_dollar_imbalance_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], num_prev_bars: int = 3,
                                   expected_imbalance_window: int = 10000, exp_num_ticks_init: int = 20000,
                                   exp_num_ticks_constraints: List[float] = None, batch_size: int = 2e7,
-                                  analyse_thresholds: bool = False,
+                                  analyse_thresholds: bool = False, enable_footprint: bool = False,
                                   verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None):
     """
     Creates the EMA dollar imbalance bars: date_time, open, high, low, close, volume, cum_buy_volume, cum_ticks, cum_dollar_value.
 
     :param file_path_or_df: (str, iterable of str, or pd.DataFrame) Path to the csv file(s) or Pandas Data Frame containing raw tick data
-                            in the format[date_time, price, volume]
+                            in the format[date_time, price, volume] or [date_time, price, bid_qty, ask_qty]
     :param num_prev_bars: (int) Window size for E[T]s (number of previous bars to use for expected number of ticks estimation)
     :param expected_imbalance_window: (int) EMA window used to estimate expected imbalance
     :param exp_num_ticks_init: (int) Initial expected number of ticks per bar
@@ -120,16 +122,21 @@ def get_ema_dollar_imbalance_bars(file_path_or_df: Union[str, Iterable[str], pd.
     :param verbose: (bool) Print out batch numbers (True or False)
     :param to_csv: (bool) Save bars to csv after every batch run (True or False)
     :param analyse_thresholds: (bool) Flag to save  and return thresholds used to sample imbalance bars
+    :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
     :param output_path: (str) Path to csv file, if to_csv is True
-    :return: (pd.DataFrame) DataFrame of dollar imbalance bars and DataFrame of thresholds, if to_csv=True returns None
+    :return: (tuple) If enable_footprint=False: (bars DataFrame, thresholds DataFrame)
+                     If enable_footprint=True: (dict {'bars': df, 'footprint': df}, thresholds DataFrame)
     """
     bars = EMAImbalanceBars(metric='dollar_imbalance', num_prev_bars=num_prev_bars,
                             expected_imbalance_window=expected_imbalance_window,
                             exp_num_ticks_init=exp_num_ticks_init, exp_num_ticks_constraints=exp_num_ticks_constraints,
-                            batch_size=batch_size, analyse_thresholds=analyse_thresholds)
+                            batch_size=batch_size, analyse_thresholds=analyse_thresholds, enable_footprint=enable_footprint)
     imbalance_bars = bars.batch_run(file_path_or_df=file_path_or_df,
                                     verbose=verbose, to_csv=to_csv, output_path=output_path)
 
+    if enable_footprint:
+        footprint = bars.get_footprint()
+        return {'bars': imbalance_bars, 'footprint': footprint}, pd.DataFrame(bars.bars_thresholds)
     return imbalance_bars, pd.DataFrame(bars.bars_thresholds)
 
 

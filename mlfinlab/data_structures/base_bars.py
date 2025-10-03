@@ -36,12 +36,13 @@ class BaseBars(ABC):
     they are included here so as to avoid a complicated nested class structure.
     """
 
-    def __init__(self, metric: str, batch_size: int = 2e7):
+    def __init__(self, metric: str, batch_size: int = 2e7, enable_footprint: bool = False):
         """
         Constructor
 
         :param metric: (str) Type of imbalance bar to create. Example: dollar_imbalance.
         :param batch_size: (int) Number of rows to read in from the csv, per batch.
+        :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
         """
 
         # Base properties
@@ -57,6 +58,15 @@ class BaseBars(ABC):
 
         # Batch_run properties
         self.flag = False  # The first flag is false since the first batch doesn't use the cache
+
+        # Footprint properties
+        self.enable_footprint = enable_footprint
+        self.current_footprint = {}  # {price: {'bid_vol': float, 'ask_vol': float}}
+        self.completed_footprints = []  # List of completed footprint DataFrames
+        self.bar_open_price = None  # For OHLC flag marking
+        self.bar_high_price = -np.inf
+        self.bar_low_price = np.inf
+        self.bar_close_price = None
 
 
     def batch_run(self, file_path_or_df: Union[str, Iterable[str], pd.DataFrame], verbose: bool = True, to_csv: bool = False,
@@ -293,6 +303,110 @@ class BaseBars(ABC):
             raise ValueError('Unknown imbalance metric, possible values are tick/dollar/volume imbalance/run')
         return imbalance
 
+    def _update_footprint(self, price: float, volume: float, signed_tick: int,
+                          timestamp=None, bid_qty: float = None, ask_qty: float = None):
+        """
+        Update footprint data for current bar with tick information.
+
+        :param price: (float) Tick price
+        :param volume: (float) Tick total volume
+        :param signed_tick: (int) Tick rule result (1/-1/0)
+        :param timestamp: Tick timestamp (reserved for future use)
+        :param bid_qty: (float) Actual bid quantity if available
+        :param ask_qty: (float) Actual ask quantity if available
+        """
+        if not self.enable_footprint:
+            return
+
+        # Suppress unused variable warning (reserved for future extensions)
+        _ = timestamp
+
+        # Initialize price level if not exists
+        if price not in self.current_footprint:
+            self.current_footprint[price] = {'bid_vol': 0.0, 'ask_vol': 0.0}
+
+        # Distribute volume to bid/ask
+        if bid_qty is not None and ask_qty is not None:
+            # Use real bid/ask data
+            self.current_footprint[price]['bid_vol'] += bid_qty
+            self.current_footprint[price]['ask_vol'] += ask_qty
+        else:
+            # Infer from tick rule
+            # bid_vol: aggressive buy volume (price going up)
+            # ask_vol: aggressive sell volume (price going down)
+            if signed_tick == 1:  # Buy (price up) - aggressive buyers
+                self.current_footprint[price]['bid_vol'] += volume
+            elif signed_tick == -1:  # Sell (price down) - aggressive sellers
+                self.current_footprint[price]['ask_vol'] += volume
+            else:  # Unknown direction, split evenly
+                half_vol = volume / 2
+                self.current_footprint[price]['bid_vol'] += half_vol
+                self.current_footprint[price]['ask_vol'] += half_vol
+
+        # Update OHLC tracking for flags
+        if self.bar_open_price is None:
+            self.bar_open_price = price
+        self.bar_high_price = max(self.bar_high_price, price)
+        self.bar_low_price = min(self.bar_low_price, price)
+        self.bar_close_price = price
+
+    def _finalize_footprint(self, bar_timestamp):
+        """
+        Finalize footprint for completed bar and add OHLC flags.
+
+        :param bar_timestamp: Timestamp of the completed bar
+        """
+        if not self.enable_footprint or not self.current_footprint:
+            return
+
+        # Build footprint records
+        footprint_data = []
+        for price, data in self.current_footprint.items():
+            total_vol = data['bid_vol'] + data['ask_vol']
+            delta = data['bid_vol'] - data['ask_vol']
+
+            footprint_data.append({
+                'bar_timestamp': bar_timestamp,
+                'price': price,
+                'bid_vol': data['bid_vol'],
+                'ask_vol': data['ask_vol'],
+                'total_vol': total_vol,
+                'delta': delta,
+                'is_open': (price == self.bar_open_price),
+                'is_high': (price == self.bar_high_price),
+                'is_low': (price == self.bar_low_price),
+                'is_close': (price == self.bar_close_price)
+            })
+
+        if footprint_data:
+            self.completed_footprints.append(pd.DataFrame(footprint_data))
+
+        # Reset footprint cache
+        self.current_footprint = {}
+        self.bar_open_price = None
+        self.bar_high_price = -np.inf
+        self.bar_low_price = np.inf
+        self.bar_close_price = None
+
+    def get_footprint(self) -> Optional[pd.DataFrame]:
+        """
+        Get completed footprint data as MultiIndex DataFrame.
+
+        :return: (pd.DataFrame) MultiIndex (bar_timestamp, price) with columns:
+                 bid_vol, ask_vol, total_vol, delta, is_open, is_high, is_low, is_close
+                 Returns None if footprint tracking is disabled or no data collected.
+        """
+        if not self.enable_footprint or not self.completed_footprints:
+            return None
+
+        # Concatenate all footprint DataFrames
+        footprint_df = pd.concat(self.completed_footprints, ignore_index=True)
+
+        # Convert to MultiIndex
+        footprint_df = footprint_df.set_index(['bar_timestamp', 'price'])
+
+        return footprint_df
+
 
 class BaseImbalanceBars(BaseBars):
     """
@@ -301,7 +415,7 @@ class BaseImbalanceBars(BaseBars):
 
     def __init__(self, metric: str, batch_size: int,
                  expected_imbalance_window: int, exp_num_ticks_init: int,
-                 analyse_thresholds: bool):
+                 analyse_thresholds: bool, enable_footprint: bool = False):
         """
         Constructor
 
@@ -312,8 +426,9 @@ class BaseImbalanceBars(BaseBars):
                                          For Const Imbalance Bars expected number of ticks equals expected number of ticks init
         :param analyse_thresholds: (bool) Flag to return thresholds values (theta, exp_num_ticks, exp_imbalance) in a
                                           form of Pandas DataFrame
+        :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
         """
-        BaseBars.__init__(self, metric, batch_size)
+        BaseBars.__init__(self, metric, batch_size, enable_footprint)
 
         self.expected_imbalance_window = expected_imbalance_window
 
@@ -341,18 +456,36 @@ class BaseImbalanceBars(BaseBars):
         """
         For loop which compiles the various imbalance bars: dollar, volume, or tick.
 
-        :param data: (pd.DataFrame) Contains 3 columns - date_time, price, and volume.
+        :param data: (pd.DataFrame) Contains 3, 4, or 5 columns - date_time, price, volume (or bid_qty, ask_qty).
         :return: (list) Bars built using the current batch.
         """
 
         # Iterate over rows
         list_bars = []
         for row in data:
-            # Set variables
+            # Set variables and detect input format
             date_time = row[0]
             self.tick_num += 1
             price = np.float(row[1])
-            volume = row[2]
+
+            # Detect format: 3-column, 4-column, or 5+ column
+            if len(row) == 3:
+                # Standard format: [date_time, price, volume]
+                volume = row[2]
+                bid_qty, ask_qty = None, None
+            elif len(row) == 4:
+                # Bid/ask format: [date_time, price, bid_qty, ask_qty]
+                bid_qty = row[2]
+                ask_qty = row[3]
+                volume = bid_qty + ask_qty
+            elif len(row) >= 5:
+                # Full format: [date_time, price, volume, bid_qty, ask_qty, ...]
+                volume = row[2]
+                bid_qty = row[3]
+                ask_qty = row[4]
+            else:
+                raise ValueError(f"Invalid row format: expected 3, 4, or 5+ columns, got {len(row)}")
+
             dollar_value = price * volume
             signed_tick = self._apply_tick_rule(price)
 
@@ -368,6 +501,9 @@ class BaseImbalanceBars(BaseBars):
             self.cum_statistics['cum_volume'] += volume
             if signed_tick == 1:
                 self.cum_statistics['cum_buy_volume'] += volume
+
+            # Update footprint with current tick
+            self._update_footprint(price, volume, signed_tick, date_time, bid_qty, ask_qty)
 
             # Imbalance calculations
             imbalance = self._get_imbalance(price, signed_tick, volume)
@@ -386,6 +522,9 @@ class BaseImbalanceBars(BaseBars):
             # Check expression for possible bar generation
             if (np.abs(self.thresholds['cum_theta']) > self.thresholds['exp_num_ticks'] * np.abs(
                     self.thresholds['expected_imbalance']) if ~np.isnan(self.thresholds['expected_imbalance']) else False):
+                # Finalize footprint for completed bar
+                self._finalize_footprint(date_time)
+
                 self._create_bars(date_time, price,
                                   self.high_price, self.low_price, list_bars)
 
@@ -439,7 +578,7 @@ class BaseRunBars(BaseBars):
 
     def __init__(self, metric: str, batch_size: int, num_prev_bars: int,
                  expected_imbalance_window: int,
-                 exp_num_ticks_init: int, analyse_thresholds: bool):
+                 exp_num_ticks_init: int, analyse_thresholds: bool, enable_footprint: bool = False):
         """
         Constructor
 
@@ -449,8 +588,9 @@ class BaseRunBars(BaseBars):
         :param exp_num_ticks_init: (int) Initial estimate for expected number of ticks in bar.
                                          For Const Imbalance Bars expected number of ticks equals expected number of ticks init
         :param analyse_thresholds: (bool) Flag to return thresholds values (thetas, exp_num_ticks, exp_runs) in Pandas DataFrame
+        :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
         """
-        BaseBars.__init__(self, metric, batch_size)
+        BaseBars.__init__(self, metric, batch_size, enable_footprint)
 
         self.num_prev_bars = num_prev_bars
         self.expected_imbalance_window = expected_imbalance_window
@@ -484,18 +624,36 @@ class BaseRunBars(BaseBars):
         """
         For loop which compiles the various run bars: dollar, volume, or tick.
 
-        :param data: (list or np.ndarray) Contains 3 columns - date_time, price, and volume.
+        :param data: (list or np.ndarray) Contains 3, 4, or 5 columns - date_time, price, volume (or bid_qty, ask_qty).
         :return: (list) of bars built using the current batch.
         """
 
         # Iterate over rows
         list_bars = []
         for row in data:
-            # Set variables
+            # Set variables and detect input format
             date_time = row[0]
             self.tick_num += 1
             price = np.float(row[1])
-            volume = row[2]
+
+            # Detect format: 3-column, 4-column, or 5+ column
+            if len(row) == 3:
+                # Standard format: [date_time, price, volume]
+                volume = row[2]
+                bid_qty, ask_qty = None, None
+            elif len(row) == 4:
+                # Bid/ask format: [date_time, price, bid_qty, ask_qty]
+                bid_qty = row[2]
+                ask_qty = row[3]
+                volume = bid_qty + ask_qty
+            elif len(row) >= 5:
+                # Full format: [date_time, price, volume, bid_qty, ask_qty, ...]
+                volume = row[2]
+                bid_qty = row[3]
+                ask_qty = row[4]
+            else:
+                raise ValueError(f"Invalid row format: expected 3, 4, or 5+ columns, got {len(row)}")
+
             dollar_value = price * volume
             signed_tick = self._apply_tick_rule(price)
 
@@ -511,6 +669,9 @@ class BaseRunBars(BaseBars):
             self.cum_statistics['cum_volume'] += volume
             if signed_tick == 1:
                 self.cum_statistics['cum_buy_volume'] += volume
+
+            # Update footprint with current tick
+            self._update_footprint(price, volume, signed_tick, date_time, bid_qty, ask_qty)
 
             # Imbalance calculations
             imbalance = self._get_imbalance(price, signed_tick, volume)
@@ -552,6 +713,9 @@ class BaseRunBars(BaseBars):
             # Check expression for possible bar generation
             max_theta = max(self.thresholds['cum_theta_buy'], self.thresholds['cum_theta_sell'])
             if max_theta > self.thresholds['exp_num_ticks'] * max_proportion and not np.isnan(max_proportion):
+                # Finalize footprint for completed bar
+                self._finalize_footprint(date_time)
+
                 self._create_bars(date_time, price, self.high_price, self.low_price, list_bars)
 
                 self.imbalance_tick_statistics['num_ticks_bar'].append(self.cum_statistics['cum_ticks'])

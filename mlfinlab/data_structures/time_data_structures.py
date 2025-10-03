@@ -20,15 +20,16 @@ class TimeBars(BaseBars):
     Use get_time_bars instead
     """
 
-    def __init__(self, resolution: str, num_units: int, batch_size: int = 20000000):
+    def __init__(self, resolution: str, num_units: int, batch_size: int = 20000000, enable_footprint: bool = False):
         """
         Constructor
 
         :param resolution: (str) Type of bar resolution: ['D', 'H', 'MIN', 'S']
         :param num_units: (int) Number of days, minutes, etc.
         :param batch_size: (int) Number of rows to read in from the csv, per batch
+        :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
         """
-        BaseBars.__init__(self, metric=None, batch_size=batch_size)
+        BaseBars.__init__(self, metric=None, batch_size=batch_size, enable_footprint=enable_footprint)
 
         # Threshold at which to sample (in seconds)
         self.time_bar_thresh_mapping = {'D': 86400, 'H': 3600, 'MIN': 60, 'S': 1}  # Number of seconds
@@ -52,7 +53,7 @@ class TimeBars(BaseBars):
         For loop which compiles time bars.
         We did investigate the use of trying to solve this in a vectorised manner but found that a For loop worked well.
 
-        :param data: (tuple) Contains 3 columns - date_time, price, and volume.
+        :param data: (tuple) Contains 3, 4, or 5 columns - date_time, price, volume (or bid_qty, ask_qty).
         :return: (list) Extracted bars
         """
 
@@ -60,11 +61,29 @@ class TimeBars(BaseBars):
         list_bars = []
 
         for row in data:
-            # Set variables
+            # Set variables and detect input format
             date_time = row[0].timestamp()  # Convert to UTC timestamp
             self.tick_num += 1
             price = np.float(row[1])
-            volume = row[2]
+
+            # Detect format: 3-column, 4-column, or 5+ column
+            if len(row) == 3:
+                # Standard format: [date_time, price, volume]
+                volume = row[2]
+                bid_qty, ask_qty = None, None
+            elif len(row) == 4:
+                # Bid/ask format: [date_time, price, bid_qty, ask_qty]
+                bid_qty = row[2]
+                ask_qty = row[3]
+                volume = bid_qty + ask_qty
+            elif len(row) >= 5:
+                # Full format: [date_time, price, volume, bid_qty, ask_qty, ...]
+                volume = row[2]
+                bid_qty = row[3]
+                ask_qty = row[4]
+            else:
+                raise ValueError(f"Invalid row format: expected 3, 4, or 5+ columns, got {len(row)}")
+
             dollar_value = price * volume
             signed_tick = self._apply_tick_rule(price)
 
@@ -77,6 +96,9 @@ class TimeBars(BaseBars):
             # Bar generation condition
             # Current ticks bar timestamp differs from current bars timestamp
             elif self.timestamp < timestamp_threshold:
+                # Finalize footprint for completed bar
+                self._finalize_footprint(self.timestamp)
+
                 self._create_bars(self.timestamp, self.close_price,
                                   self.high_price, self.low_price, list_bars)
 
@@ -101,25 +123,33 @@ class TimeBars(BaseBars):
             if signed_tick == 1:
                 self.cum_statistics['cum_buy_volume'] += volume
 
+            # Update footprint with current tick
+            self._update_footprint(price, volume, signed_tick, row[0], bid_qty, ask_qty)
+
         return list_bars
 
 
 def get_time_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], resolution: str = 'D', num_units: int = 1, batch_size: int = 20000000,
-                  verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None):
+                  verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None, enable_footprint: bool = False):
     """
     Creates Time Bars: date_time, open, high, low, close, volume, cum_buy_volume, cum_ticks, cum_dollar_value.
 
     :param file_path_or_df: (str, iterable of str, or pd.DataFrame) Path to the csv file(s) or Pandas Data Frame containing raw tick data
-                            in the format[date_time, price, volume]
+                            in the format[date_time, price, volume] or [date_time, price, bid_qty, ask_qty]
     :param resolution: (str) Resolution type ('D', 'H', 'MIN', 'S')
     :param num_units: (int) Number of resolution units (3 days for example, 2 hours)
     :param batch_size: (int) The number of rows per batch. Less RAM = smaller batch size.
     :param verbose: (int) Print out batch numbers (True or False)
     :param to_csv: (bool) Save bars to csv after every batch run (True or False)
     :param output_path: (str) Path to csv file, if to_csv is True
-    :return: (pd.DataFrame) Dataframe of time bars, if to_csv=True return None
+    :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
+    :return: (pd.DataFrame or dict) Dataframe of time bars, or dict {'bars': df, 'footprint': df} if enable_footprint=True
     """
 
-    bars = TimeBars(resolution=resolution, num_units=num_units, batch_size=batch_size)
+    bars = TimeBars(resolution=resolution, num_units=num_units, batch_size=batch_size, enable_footprint=enable_footprint)
     time_bars = bars.batch_run(file_path_or_df=file_path_or_df, verbose=verbose, to_csv=to_csv, output_path=output_path)
+
+    if enable_footprint:
+        footprint = bars.get_footprint()
+        return {'bars': time_bars, 'footprint': footprint}
     return time_bars

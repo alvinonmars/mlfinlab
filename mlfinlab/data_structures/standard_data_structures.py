@@ -33,15 +33,16 @@ class StandardBars(BaseBars):
     This is because we wanted to simplify the logic as much as possible, for the end user.
     """
 
-    def __init__(self, metric: str, threshold: int = 50000, batch_size: int = 20000000):
+    def __init__(self, metric: str, threshold: int = 50000, batch_size: int = 20000000, enable_footprint: bool = False):
         """
         Constructor
 
         :param metric: (str) Type of run bar to create. Example: "dollar_run"
         :param threshold: (int) Threshold at which to sample
         :param batch_size: (int) Number of rows to read in from the csv, per batch
+        :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
         """
-        BaseBars.__init__(self, metric, batch_size)
+        BaseBars.__init__(self, metric, batch_size, enable_footprint)
 
         # Threshold at which to sample
         self.threshold = threshold
@@ -59,7 +60,7 @@ class StandardBars(BaseBars):
         For loop which compiles the various bars: dollar, volume, or tick.
         We did investigate the use of trying to solve this in a vectorised manner but found that a For loop worked well.
 
-        :param data: (tuple) Contains 3 columns - date_time, price, and volume.
+        :param data: (tuple) Contains 3, 4, or 5 columns - date_time, price, volume (or bid_qty, ask_qty).
         :return: (list) Extracted bars
         """
 
@@ -67,11 +68,29 @@ class StandardBars(BaseBars):
         list_bars = []
 
         for row in data:
-            # Set variables
+            # Set variables and detect input format
             date_time = row[0]
             self.tick_num += 1
             price = np.float(row[1])
-            volume = row[2]
+
+            # Detect format: 3-column, 4-column, or 5+ column
+            if len(row) == 3:
+                # Standard format: [date_time, price, volume]
+                volume = row[2]
+                bid_qty, ask_qty = None, None
+            elif len(row) == 4:
+                # Bid/ask format: [date_time, price, bid_qty, ask_qty]
+                bid_qty = row[2]
+                ask_qty = row[3]
+                volume = bid_qty + ask_qty
+            elif len(row) >= 5:
+                # Full format: [date_time, price, volume, bid_qty, ask_qty, ...]
+                volume = row[2]
+                bid_qty = row[3]
+                ask_qty = row[4]
+            else:
+                raise ValueError(f"Invalid row format: expected 3, 4, or 5+ columns, got {len(row)}")
+
             dollar_value = price * volume
             signed_tick = self._apply_tick_rule(price)
 
@@ -96,8 +115,14 @@ class StandardBars(BaseBars):
             if signed_tick == 1:
                 self.cum_statistics['cum_buy_volume'] += volume
 
+            # Update footprint with current tick
+            self._update_footprint(price, volume, signed_tick, date_time, bid_qty, ask_qty)
+
             # If threshold reached then take a sample
             if self.cum_statistics[self.metric] >= threshold:  # pylint: disable=eval-used
+                # Finalize footprint for completed bar
+                self._finalize_footprint(date_time)
+
                 self._create_bars(date_time, price,
                                   self.high_price, self.low_price, list_bars)
 
@@ -107,7 +132,8 @@ class StandardBars(BaseBars):
 
 
 def get_dollar_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], threshold: Union[float, pd.Series] = 70000000,
-                    batch_size: int = 20000000, verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None):
+                    batch_size: int = 20000000, verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None,
+                    enable_footprint: bool = False):
     """
     Creates the dollar bars: date_time, open, high, low, close, volume, cum_buy_volume, cum_ticks, cum_dollar_value.
 
@@ -116,7 +142,7 @@ def get_dollar_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], th
     properties.
 
     :param file_path_or_df: (str, iterable of str, or pd.DataFrame) Path to the csv file(s) or Pandas Data Frame containing raw tick data
-                            in the format[date_time, price, volume]
+                            in the format[date_time, price, volume] or [date_time, price, bid_qty, ask_qty]
     :param threshold: (float, or pd.Series) A cumulative value above this threshold triggers a sample to be taken.
                       If a series is given, then at each sampling time the closest previous threshold is used.
                       (Values in the series can only be at times when the threshold is changed, not for every observation)
@@ -124,16 +150,22 @@ def get_dollar_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], th
     :param verbose: (bool) Print out batch numbers (True or False)
     :param to_csv: (bool) Save bars to csv after every batch run (True or False)
     :param output_path: (str) Path to csv file, if to_csv is True
-    :return: (pd.DataFrame) Dataframe of dollar bars
+    :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
+    :return: (pd.DataFrame or dict) Dataframe of dollar bars, or dict {'bars': df, 'footprint': df} if enable_footprint=True
     """
 
-    bars = StandardBars(metric='cum_dollar_value', threshold=threshold, batch_size=batch_size)
+    bars = StandardBars(metric='cum_dollar_value', threshold=threshold, batch_size=batch_size, enable_footprint=enable_footprint)
     dollar_bars = bars.batch_run(file_path_or_df=file_path_or_df, verbose=verbose, to_csv=to_csv, output_path=output_path)
+
+    if enable_footprint:
+        footprint = bars.get_footprint()
+        return {'bars': dollar_bars, 'footprint': footprint}
     return dollar_bars
 
 
 def get_volume_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], threshold: Union[float, pd.Series] = 70000000,
-                    batch_size: int = 20000000, verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None):
+                    batch_size: int = 20000000, verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None,
+                    enable_footprint: bool = False):
     """
     Creates the volume bars: date_time, open, high, low, close, volume, cum_buy_volume, cum_ticks, cum_dollar_value.
 
@@ -141,7 +173,7 @@ def get_volume_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], th
     it is suggested that using 1/50 of the average daily volume, would result in more desirable statistical properties.
 
     :param file_path_or_df: (str, iterable of str, or pd.DataFrame) Path to the csv file(s) or Pandas Data Frame containing raw tick data
-                            in the format[date_time, price, volume]
+                            in the format[date_time, price, volume] or [date_time, price, bid_qty, ask_qty]
     :param threshold: (float, or pd.Series) A cumulative value above this threshold triggers a sample to be taken.
                       If a series is given, then at each sampling time the closest previous threshold is used.
                       (Values in the series can only be at times when the threshold is changed, not for every observation)
@@ -149,20 +181,26 @@ def get_volume_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], th
     :param verbose: (bool) Print out batch numbers (True or False)
     :param to_csv: (bool) Save bars to csv after every batch run (True or False)
     :param output_path: (str) Path to csv file, if to_csv is True
-    :return: (pd.DataFrame) Dataframe of volume bars
+    :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
+    :return: (pd.DataFrame or dict) Dataframe of volume bars, or dict {'bars': df, 'footprint': df} if enable_footprint=True
     """
-    bars = StandardBars(metric='cum_volume', threshold=threshold, batch_size=batch_size)
+    bars = StandardBars(metric='cum_volume', threshold=threshold, batch_size=batch_size, enable_footprint=enable_footprint)
     volume_bars = bars.batch_run(file_path_or_df=file_path_or_df, verbose=verbose, to_csv=to_csv, output_path=output_path)
+
+    if enable_footprint:
+        footprint = bars.get_footprint()
+        return {'bars': volume_bars, 'footprint': footprint}
     return volume_bars
 
 
 def get_tick_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], threshold: Union[float, pd.Series] = 70000000,
-                  batch_size: int = 20000000, verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None):
+                  batch_size: int = 20000000, verbose: bool = True, to_csv: bool = False, output_path: Optional[str] = None,
+                  enable_footprint: bool = False):
     """
     Creates the tick bars: date_time, open, high, low, close, volume, cum_buy_volume, cum_ticks, cum_dollar_value.
 
     :param file_path_or_df: (str, iterable of str, or pd.DataFrame) Path to the csv file(s) or Pandas Data Frame containing raw tick data
-                             in the format[date_time, price, volume]
+                             in the format[date_time, price, volume] or [date_time, price, bid_qty, ask_qty]
     :param threshold: (float, or pd.Series) A cumulative value above this threshold triggers a sample to be taken.
                       If a series is given, then at each sampling time the closest previous threshold is used.
                       (Values in the series can only be at times when the threshold is changed, not for every observation)
@@ -170,9 +208,13 @@ def get_tick_bars(file_path_or_df: Union[str, Iterable[str], pd.DataFrame], thre
     :param verbose: (bool) Print out batch numbers (True or False)
     :param to_csv: (bool) Save bars to csv after every batch run (True or False)
     :param output_path: (str) Path to csv file, if to_csv is True
-    :return: (pd.DataFrame) Dataframe of volume bars
+    :param enable_footprint: (bool) Enable footprint tracking with bid/ask volume per price level.
+    :return: (pd.DataFrame or dict) Dataframe of tick bars, or dict {'bars': df, 'footprint': df} if enable_footprint=True
     """
-    bars = StandardBars(metric='cum_ticks',
-                        threshold=threshold, batch_size=batch_size)
+    bars = StandardBars(metric='cum_ticks', threshold=threshold, batch_size=batch_size, enable_footprint=enable_footprint)
     tick_bars = bars.batch_run(file_path_or_df=file_path_or_df, verbose=verbose, to_csv=to_csv, output_path=output_path)
+
+    if enable_footprint:
+        footprint = bars.get_footprint()
+        return {'bars': tick_bars, 'footprint': footprint}
     return tick_bars
