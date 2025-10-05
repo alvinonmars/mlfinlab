@@ -64,7 +64,7 @@ class TimeBars(BaseBars):
             # Set variables and detect input format
             date_time = row[0].timestamp()  # Convert to UTC timestamp
             self.tick_num += 1
-            price = np.float(row[1])
+            price = float(row[1])
 
             # Detect format: 3-column, 4-column, or 5+ column
             if len(row) == 3:

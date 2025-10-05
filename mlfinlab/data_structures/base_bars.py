@@ -322,6 +322,8 @@ class BaseBars(ABC):
         _ = timestamp
 
         # Initialize price level if not exists
+        # Round price to avoid floating point precision issues
+        price = round(price, 8)  # Round to 8 decimal places for precision
         if price not in self.current_footprint:
             self.current_footprint[price] = {'bid_vol': 0.0, 'ask_vol': 0.0}
 
@@ -360,6 +362,12 @@ class BaseBars(ABC):
             return
 
         # Build footprint records
+        # Round OHLC prices for comparison consistency
+        bar_open_price_rounded = round(self.bar_open_price, 8) if self.bar_open_price is not None else None
+        bar_high_price_rounded = round(self.bar_high_price, 8)
+        bar_low_price_rounded = round(self.bar_low_price, 8)
+        bar_close_price_rounded = round(self.bar_close_price, 8) if self.bar_close_price is not None else None
+
         footprint_data = []
         for price, data in self.current_footprint.items():
             total_vol = data['bid_vol'] + data['ask_vol']
@@ -372,10 +380,10 @@ class BaseBars(ABC):
                 'ask_vol': data['ask_vol'],
                 'total_vol': total_vol,
                 'delta': delta,
-                'is_open': (price == self.bar_open_price),
-                'is_high': (price == self.bar_high_price),
-                'is_low': (price == self.bar_low_price),
-                'is_close': (price == self.bar_close_price)
+                'is_open': (price == bar_open_price_rounded),
+                'is_high': (price == bar_high_price_rounded),
+                'is_low': (price == bar_low_price_rounded),
+                'is_close': (price == bar_close_price_rounded)
             })
 
         if footprint_data:
@@ -466,7 +474,7 @@ class BaseImbalanceBars(BaseBars):
             # Set variables and detect input format
             date_time = row[0]
             self.tick_num += 1
-            price = np.float(row[1])
+            price = float(row[1])
 
             # Detect format: 3-column, 4-column, or 5+ column
             if len(row) == 3:
@@ -634,7 +642,7 @@ class BaseRunBars(BaseBars):
             # Set variables and detect input format
             date_time = row[0]
             self.tick_num += 1
-            price = np.float(row[1])
+            price = float(row[1])
 
             # Detect format: 3-column, 4-column, or 5+ column
             if len(row) == 3:

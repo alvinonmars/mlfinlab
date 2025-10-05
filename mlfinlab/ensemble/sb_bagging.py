@@ -11,10 +11,8 @@ import numpy as np
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import BaggingClassifier, BaggingRegressor
 from sklearn.ensemble._bagging import BaseBagging
-from sklearn.ensemble._base import _partition_estimators
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.utils.random import sample_without_replacement
-from sklearn.utils import indices_to_mask
 from sklearn.metrics import accuracy_score, r2_score
 from sklearn.utils.validation import has_fit_parameter
 from sklearn.utils import check_random_state, check_array, check_consistent_length, check_X_y
@@ -23,6 +21,23 @@ from sklearn.utils._joblib import Parallel, delayed
 from mlfinlab.sampling.bootstrapping import seq_bootstrap, get_ind_matrix
 
 MAX_INT = np.iinfo(np.int32).max
+
+
+# Utility functions (sklearn 1.2+ removed these from public API)
+def _indices_to_mask(indices, mask_length):
+    """Convert array of indices to boolean mask."""
+    mask = np.zeros(mask_length, dtype=bool)
+    mask[indices] = True
+    return mask
+
+
+def _partition_estimators(n_estimators, n_jobs):
+    """Partition estimators between jobs."""
+    n_jobs = min(n_jobs, n_estimators)
+    n_estimators_per_job = np.full(n_jobs, n_estimators // n_jobs, dtype=int)
+    n_estimators_per_job[:n_estimators % n_jobs] += 1
+    starts = np.cumsum(n_estimators_per_job)
+    return n_estimators_per_job.tolist(), [0] + starts.tolist()
 
 
 # pylint: disable=too-many-ancestors
@@ -434,7 +449,7 @@ class SequentiallyBootstrappedBaggingClassifier(SequentiallyBootstrappedBaseBagg
                                                 self.sequentially_bootstrapped_samples_,
                                                 self.estimators_features_):
             # Create mask for OOB samples
-            mask = ~indices_to_mask(samples, n_samples)
+            mask = ~_indices_to_mask(samples, n_samples)
 
             if hasattr(estimator, "predict_proba"):
                 predictions[mask, :] += estimator.predict_proba(
@@ -568,7 +583,7 @@ class SequentiallyBootstrappedBaggingRegressor(SequentiallyBootstrappedBaseBaggi
                                                 self.sequentially_bootstrapped_samples_,
                                                 self.estimators_features_):
             # Create mask for OOB samples
-            mask = ~indices_to_mask(samples, n_samples)
+            mask = ~_indices_to_mask(samples, n_samples)
 
             predictions[mask] += estimator.predict((X[mask, :])[:, features])
             n_predictions[mask] += 1
