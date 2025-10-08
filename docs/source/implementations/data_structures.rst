@@ -334,6 +334,272 @@ Example
 
 |
 
+Footprint Bars
+##############
+
+Footprint bars extend MLFinLab's bar sampling capabilities by tracking bid/ask volume at each price level within a bar.
+This provides a granular view of order flow and market microstructure that is not available in standard OHLCV bars.
+
+Overview
+********
+
+Traditional bars aggregate tick data into Open, High, Low, Close, and Volume (OHLCV) format, but they lose information about:
+
+* How volume was distributed across different price levels
+* The aggressiveness of buyers vs sellers at each price
+* The Point of Control (POC) - the price with the most volume
+* Value Area - the price range where most volume occurred
+
+Footprint bars solve this by maintaining a detailed record of bid/ask volume for every price level traded within each bar.
+
+Key Features
+************
+
+* **Price-level granularity**: Track volume at each price within a bar
+* **Bid/Ask separation**: Distinguish aggressive buyers from aggressive sellers
+* **Universal support**: Works with all bar types (time, dollar, volume, tick, imbalance, run)
+* **Multiple input formats**: Supports standard 3-column format with tick rule inference, or 4/5-column format with real bid/ask data
+* **OHLC flags**: Mark which prices correspond to Open, High, Low, Close
+* **Delta calculation**: Automatically compute bid_vol - ask_vol for order flow analysis
+
+Input Data Formats
+******************
+
+Footprint bars support three input formats:
+
+**Format 1: Standard (3 columns)**
+
+.. code-block::
+
+   date_time, price, volume
+
+Volume direction is inferred using the tick rule:
+- Price increase → classified as aggressive buy (bid_vol)
+- Price decrease → classified as aggressive sell (ask_vol)
+- No change → inherits previous tick direction or splits evenly
+
+**Format 2: Bid/Ask (4 columns)** - Recommended
+
+.. code-block::
+
+   date_time, price, bid_qty, ask_qty
+
+Provides real bid/ask separation from exchange data. Total volume = bid_qty + ask_qty.
+
+**Format 3: Full (5 columns)**
+
+.. code-block::
+
+   date_time, price, volume, bid_qty, ask_qty
+
+Includes both total volume and bid/ask breakdown for validation.
+
+Usage Example
+*************
+
+**Enable footprint tracking for any bar type:**
+
+.. code-block:: python
+
+   from mlfinlab.data_structures import get_dollar_bars
+   import pandas as pd
+
+   # Load tick data with bid/ask information
+   data = pd.DataFrame({
+       'date_time': pd.date_range('2021-01-01 09:30', periods=1000, freq='1s'),
+       'price': [...],      # tick prices
+       'bid_qty': [...],    # aggressive buy volume
+       'ask_qty': [...]     # aggressive sell volume
+   })
+
+   # Generate footprint bars
+   result = get_dollar_bars(
+       data,
+       threshold=70000000,
+       enable_footprint=True  # Enable footprint tracking
+   )
+
+   # Access results
+   bars = result['bars']          # Standard OHLCV DataFrame
+   footprint = result['footprint']  # MultiIndex footprint DataFrame
+
+**Footprint DataFrame Structure:**
+
+.. code-block:: python
+
+   # MultiIndex: (bar_timestamp, price)
+   # Columns:
+   #   bid_vol      - Aggressive buy volume at this price level
+   #   ask_vol      - Aggressive sell volume at this price level
+   #   total_vol    - Total volume (bid_vol + ask_vol)
+   #   delta        - Order flow delta (bid_vol - ask_vol)
+   #   is_open      - True if this price is the bar's Open
+   #   is_high      - True if this price is the bar's High
+   #   is_low       - True if this price is the bar's Low
+   #   is_close     - True if this price is the bar's Close
+
+   # Example output:
+   #                              bid_vol  ask_vol  total_vol  delta  is_open  is_high  is_low  is_close
+   # bar_timestamp       price
+   # 2021-01-01 09:30:00 99.95      150      50        200     100     True    False    True     False
+   #                     100.00     300     200        500     100    False     True    False      True
+
+**Analyzing footprint data:**
+
+.. code-block:: python
+
+   # Get footprint for a specific bar
+   bar_time = footprint.index.get_level_values(0)[0]
+   bar_footprint = footprint.loc[bar_time]
+
+   # Find Point of Control (POC) - price with most volume
+   poc_price = bar_footprint['total_vol'].idxmax()
+   poc_volume = bar_footprint['total_vol'].max()
+
+   # Calculate cumulative delta for the bar
+   bar_delta = bar_footprint['delta'].sum()
+
+   # Find value area (70% of volume)
+   sorted_by_vol = bar_footprint.sort_values('total_vol', ascending=False)
+   total_volume = bar_footprint['total_vol'].sum()
+   cumsum = sorted_by_vol['total_vol'].cumsum()
+   value_area = sorted_by_vol[cumsum <= total_volume * 0.7]
+
+Supported Bar Types
+*******************
+
+Footprint tracking works with all bar sampling methods:
+
+**Standard Bars:**
+
+.. code-block:: python
+
+   from mlfinlab.data_structures import (
+       get_dollar_bars, get_volume_bars, get_tick_bars
+   )
+
+   # Each supports enable_footprint=True
+   result = get_volume_bars(data, threshold=50000, enable_footprint=True)
+
+**Time Bars:**
+
+.. code-block:: python
+
+   from mlfinlab.data_structures import get_time_bars
+
+   result = get_time_bars(
+       data,
+       resolution='MIN',
+       num_units=5,
+       enable_footprint=True
+   )
+
+**Information-Driven Bars:**
+
+.. code-block:: python
+
+   from mlfinlab.data_structures.imbalance_data_structures import (
+       get_ema_dollar_imbalance_bars
+   )
+
+   # Footprint + imbalance bars = powerful combination
+   bars, thresholds = get_ema_dollar_imbalance_bars(
+       data,
+       num_prev_bars=3,
+       expected_imbalance_window=10000,
+       exp_num_ticks_init=20000,
+       enable_footprint=True
+   )
+   # Returns: (dict with bars & footprint, thresholds DataFrame)
+
+Market Microstructure Insights
+*******************************
+
+Footprint bars enable advanced order flow analysis:
+
+**1. Aggressive vs Passive Volume**
+
+- ``bid_vol`` represents aggressive buyers (market orders lifting the offer)
+- ``ask_vol`` represents aggressive sellers (market orders hitting the bid)
+- Delta shows the battle between buyers and sellers
+
+**2. Price Acceptance/Rejection**
+
+.. code-block:: python
+
+   # Prices with high volume = acceptance
+   # Prices with low volume = rejection
+
+   for bar_time in footprint.index.get_level_values(0).unique():
+       bar_fp = footprint.loc[bar_time]
+
+       # High volume node (HVN) - price acceptance
+       hvn = bar_fp[bar_fp['total_vol'] > bar_fp['total_vol'].quantile(0.8)]
+
+       # Low volume node (LVN) - price rejection
+       lvn = bar_fp[bar_fp['total_vol'] < bar_fp['total_vol'].quantile(0.2)]
+
+**3. Imbalance at Price Levels**
+
+.. code-block:: python
+
+   # Strong buying at a price level
+   strong_buying = bar_footprint[bar_footprint['delta'] > 0].sort_values('delta', ascending=False)
+
+   # Strong selling at a price level
+   strong_selling = bar_footprint[bar_footprint['delta'] < 0].sort_values('delta')
+
+   # Balanced (auction in progress)
+   balanced = bar_footprint[abs(bar_footprint['delta']) < threshold]
+
+Implementation Notes
+********************
+
+**Precision Handling**
+
+Prices are rounded to 8 decimal places to avoid floating-point comparison issues:
+
+.. code-block:: python
+
+   # Internally:
+   price = round(price, 8)  # Ensures consistent dictionary keys
+
+**Performance**
+
+- Footprint tracking adds minimal overhead when ``enable_footprint=False`` (default)
+- When enabled, memory usage increases proportional to number of unique price levels
+- Typical overhead: 10-100x more rows than standard bars (one row per price level per bar)
+
+**Backward Compatibility**
+
+.. code-block:: python
+
+   # Existing code works unchanged
+   bars = get_dollar_bars(data, threshold=70000000)
+   # Returns: DataFrame (backward compatible)
+
+   # New functionality is opt-in
+   result = get_dollar_bars(data, threshold=70000000, enable_footprint=True)
+   # Returns: dict with 'bars' and 'footprint' keys
+
+Requirements
+************
+
+- **scikit-learn >= 1.2.0** (for compatibility)
+- **numpy >= 1.20.0** (for modern numpy API)
+
+References
+**********
+
+For more information on order flow and market microstructure:
+
+* Easley, D., López de Prado, M. M., & O'Hara, M. (2012). "Flow toxicity and liquidity in a high-frequency world."
+  *The Review of Financial Studies*, 25(5), 1457-1493.
+
+* Steidlmayer, J. P., & Koy, K. (1986). *Markets and Market Logic*. Porcupine Press.
+
+|
+
 -----------------------
 
 |
