@@ -75,8 +75,8 @@ class TestDataStructures(unittest.TestCase):
         self.assertTrue(np.all(df_constant.values == db1.values))
 
         # Assert sizes of different thresolds
-        self.assertTrue(df_dynamic.shape == (14, 10))
-        self.assertTrue(df_low.shape == (99, 10))
+        self.assertTrue(df_dynamic.shape == (14, 12))
+        self.assertTrue(df_low.shape == (99, 12))
 
         # delete generated csv file (if it wasn't generated test would fail)
         os.remove('test.csv')
@@ -129,8 +129,8 @@ class TestDataStructures(unittest.TestCase):
         self.assertTrue(np.all(df_constant.values == db1.values))
 
         # Assert sizes of different thresolds
-        self.assertTrue(df_dynamic.shape == (20, 10))
-        self.assertTrue(df_low.shape == (32, 10))
+        self.assertTrue(df_dynamic.shape == (20, 12))
+        self.assertTrue(df_low.shape == (32, 12))
 
         # delete generated csv file (if it wasn't generated test would fail)
         os.remove('test.csv')
@@ -183,8 +183,8 @@ class TestDataStructures(unittest.TestCase):
         self.assertTrue(np.all(df_constant.values == db1.values))
 
         # Assert sizes of different thresolds
-        self.assertTrue(df_dynamic.shape == (28, 10))
-        self.assertTrue(df_low.shape == (50, 10))
+        self.assertTrue(df_dynamic.shape == (28, 12))
+        self.assertTrue(df_low.shape == (50, 12))
 
         # delete generated csv file (if it wasn't generated test would fail)
         os.remove('test.csv')
@@ -275,8 +275,8 @@ class TestDataStructures(unittest.TestCase):
         db2['date_time'] = pd.to_datetime(db2.date_time)
 
         bars = ds.StandardBars(metric='cum_dollar_value', threshold=threshold)
-        cols = ['date_time', 'tick_num', 'open', 'high', 'low', 'close', 'volume', 'cum_buy_volume', 'cum_ticks',
-                'cum_dollar_value']
+        cols = ['date_time', 'tick_num', 'open_time_ms', 'close_time_ms',
+                'open', 'high', 'low', 'close', 'volume', 'cum_buy_volume', 'cum_ticks', 'cum_dollar_value']
 
         data = tick_data.values.tolist()
         final_bars = bars.run(data)

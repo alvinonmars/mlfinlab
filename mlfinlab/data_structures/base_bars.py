@@ -56,6 +56,10 @@ class BaseBars(ABC):
         self.cum_statistics = {'cum_ticks': 0, 'cum_dollar_value': 0, 'cum_volume': 0, 'cum_buy_volume': 0}
         self.tick_num = 0  # Tick number when bar was formed
 
+        # Timestamp tracking for bar boundaries (milliseconds since epoch)
+        self.open_time_ms = None   # First tick timestamp in ms
+        self.close_time_ms = None  # Last tick timestamp in ms
+
         # Batch_run properties
         self.flag = False  # The first flag is false since the first batch doesn't use the cache
 
@@ -94,8 +98,8 @@ class BaseBars(ABC):
         # Read csv in batches
         count = 0
         final_bars = []
-        cols = ['date_time', 'tick_num', 'open', 'high', 'low', 'close', 'volume', 'cum_buy_volume', 'cum_ticks',
-                'cum_dollar_value']
+        cols = ['date_time', 'tick_num', 'open_time_ms', 'close_time_ms',
+                'open', 'high', 'low', 'close', 'volume', 'cum_buy_volume', 'cum_ticks', 'cum_dollar_value']
         for batch in self._batch_iterator(file_path_or_df):
             if verbose:  # pragma: no cover
                 print('Batch number:', count)
@@ -235,8 +239,8 @@ class BaseBars(ABC):
 
     def _create_bars(self, date_time: str, price: float, high_price: float, low_price: float, list_bars: list) -> None:
         """
-        Given the inputs, construct a bar which has the following fields: date_time, open, high, low, close, volume,
-        cum_buy_volume, cum_ticks, cum_dollar_value.
+        Given the inputs, construct a bar which has the following fields: date_time, open_time_ms, close_time_ms,
+        open, high, low, close, volume, cum_buy_volume, cum_ticks, cum_dollar_value.
         These bars are appended to list_bars, which is later used to construct the final bars DataFrame.
 
         :param date_time: (str) Timestamp of the bar
@@ -257,9 +261,9 @@ class BaseBars(ABC):
 
         # Update bars
         list_bars.append(
-            [date_time, self.tick_num, open_price, high_price, low_price, close_price, volume, cum_buy_volume,
-             cum_ticks,
-             cum_dollar_value])
+            [date_time, self.tick_num, self.open_time_ms, self.close_time_ms,
+             open_price, high_price, low_price, close_price, volume, cum_buy_volume,
+             cum_ticks, cum_dollar_value])
 
     def _apply_tick_rule(self, price: float) -> int:
         """
@@ -459,6 +463,8 @@ class BaseImbalanceBars(BaseBars):
         self.high_price, self.low_price = -np.inf, np.inf
         self.cum_statistics = {'cum_ticks': 0, 'cum_dollar_value': 0, 'cum_volume': 0, 'cum_buy_volume': 0}
         self.thresholds['cum_theta'] = 0
+        self.open_time_ms = None
+        self.close_time_ms = None
 
     def _extract_bars(self, data: Tuple[dict, pd.DataFrame]) -> list:
         """
@@ -499,6 +505,11 @@ class BaseImbalanceBars(BaseBars):
 
             if self.open_price is None:
                 self.open_price = price
+                # Record first tick timestamp in milliseconds
+                self.open_time_ms = int(date_time.value // 10**6)
+
+            # Update last tick timestamp in milliseconds
+            self.close_time_ms = int(date_time.value // 10**6)
 
             # Update high low prices
             self.high_price, self.low_price = self._update_high_low(price)
@@ -627,6 +638,8 @@ class BaseRunBars(BaseBars):
         self.high_price, self.low_price = -np.inf, np.inf
         self.cum_statistics = {'cum_ticks': 0, 'cum_dollar_value': 0, 'cum_volume': 0, 'cum_buy_volume': 0}
         self.thresholds['cum_theta_buy'], self.thresholds['cum_theta_sell'], self.thresholds['buy_ticks_num'] = 0, 0, 0
+        self.open_time_ms = None
+        self.close_time_ms = None
 
     def _extract_bars(self, data: Tuple[list, np.ndarray]) -> list:
         """
@@ -667,6 +680,11 @@ class BaseRunBars(BaseBars):
 
             if self.open_price is None:
                 self.open_price = price
+                # Record first tick timestamp in milliseconds
+                self.open_time_ms = int(date_time.value // 10**6)
+
+            # Update last tick timestamp in milliseconds
+            self.close_time_ms = int(date_time.value // 10**6)
 
             # Update high low prices
             self.high_price, self.low_price = self._update_high_low(price)

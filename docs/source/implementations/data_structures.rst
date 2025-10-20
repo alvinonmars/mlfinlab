@@ -124,6 +124,55 @@ Dollar Bars
 	dollar = standard_data_structures.get_dollar_bars('FILE_PATH', threshold=70000000,
 	                                                   batch_size=1000000, verbose=True)
 
+Bar Output Columns
+******************
+
+All bar sampling methods return a DataFrame with the following columns:
+
+**Core Timestamp Information:**
+
+* ``date_time``: Bar timestamp. For standard/imbalance/run bars, this is the timestamp of the last tick that triggered the bar. For **time bars**, this is the **aligned time boundary** (e.g., 10:00:00.000 for a 1-minute bar).
+* ``open_time_ms``: Unix timestamp in **milliseconds** of the **first tick** in the bar (NEW in v1.6)
+* ``close_time_ms``: Unix timestamp in **milliseconds** of the **last tick** in the bar (NEW in v1.6)
+
+**OHLCV Data:**
+
+* ``tick_num``: Cumulative tick counter when this bar was sampled
+* ``open``: Price of the first tick in the bar
+* ``high``: Highest price in the bar
+* ``low``: Lowest price in the bar
+* ``close``: Price of the last tick in the bar
+* ``volume``: Total volume traded in the bar
+* ``cum_buy_volume``: Cumulative buy volume (aggressive buyers)
+* ``cum_ticks``: Number of ticks in the bar
+* ``cum_dollar_value``: Total dollar value traded in the bar
+
+.. important::
+   **Time Bars Precision Caveat**: For time bars, ``date_time`` is aligned to time boundaries (e.g., 09:59:58.123 → 10:00:00.000).
+   Use ``open_time_ms`` and ``close_time_ms`` to access the **actual tick timestamps** for precise microstructure analysis.
+
+**Example: Accessing Precise Timestamps**
+
+.. code-block:: python
+
+   from mlfinlab.data_structures import get_time_bars
+   import pandas as pd
+
+   # Generate 1-minute time bars
+   bars = get_time_bars(data, resolution='MIN', num_units=1)
+
+   # Convert millisecond timestamps to pandas datetime
+   bars['open_time'] = pd.to_datetime(bars['open_time_ms'], unit='ms')
+   bars['close_time'] = pd.to_datetime(bars['close_time_ms'], unit='ms')
+
+   # Calculate actual bar duration
+   bars['duration_ms'] = bars['close_time_ms'] - bars['open_time_ms']
+
+   # For time bars: date_time is aligned, but actual tick times may differ
+   print(bars[['date_time', 'open_time', 'close_time', 'duration_ms']].head())
+   #          date_time                  open_time                close_time  duration_ms
+   # 0  10:00:00.000     2021-01-01 09:59:58.123  2021-01-01 10:00:00.456         2333
+
 Statistical Properties
 **********************
 

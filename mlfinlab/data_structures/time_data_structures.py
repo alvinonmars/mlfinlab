@@ -47,6 +47,8 @@ class TimeBars(BaseBars):
         self.close_price = None
         self.high_price, self.low_price = -np.inf, np.inf
         self.cum_statistics = {'cum_ticks': 0, 'cum_dollar_value': 0, 'cum_volume': 0, 'cum_buy_volume': 0}
+        self.open_time_ms = None
+        self.close_time_ms = None
 
     def _extract_bars(self, data: Union[list, tuple, np.ndarray]) -> list:
         """
@@ -62,6 +64,7 @@ class TimeBars(BaseBars):
 
         for row in data:
             # Set variables and detect input format
+            original_datetime = row[0]  # Keep original pandas Timestamp
             date_time = row[0].timestamp()  # Convert to UTC timestamp
             self.tick_num += 1
             price = float(row[1])
@@ -109,6 +112,11 @@ class TimeBars(BaseBars):
             # Update counters
             if self.open_price is None:
                 self.open_price = price
+                # Record first tick timestamp in milliseconds
+                self.open_time_ms = int(original_datetime.value // 10**6)
+
+            # Update last tick timestamp in milliseconds
+            self.close_time_ms = int(original_datetime.value // 10**6)
 
             # Update high low prices
             self.high_price, self.low_price = self._update_high_low(price)
@@ -124,7 +132,7 @@ class TimeBars(BaseBars):
                 self.cum_statistics['cum_buy_volume'] += volume
 
             # Update footprint with current tick
-            self._update_footprint(price, volume, signed_tick, row[0], bid_qty, ask_qty)
+            self._update_footprint(price, volume, signed_tick, original_datetime, bid_qty, ask_qty)
 
         return list_bars
 

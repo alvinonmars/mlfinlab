@@ -54,6 +54,8 @@ class StandardBars(BaseBars):
         self.open_price = None
         self.high_price, self.low_price = -np.inf, np.inf
         self.cum_statistics = {'cum_ticks': 0, 'cum_dollar_value': 0, 'cum_volume': 0, 'cum_buy_volume': 0}
+        self.open_time_ms = None
+        self.close_time_ms = None
 
     def _extract_bars(self, data: Union[list, tuple, np.ndarray]) -> list:
         """
@@ -104,6 +106,11 @@ class StandardBars(BaseBars):
 
             if self.open_price is None:
                 self.open_price = price
+                # Record first tick timestamp in milliseconds
+                self.open_time_ms = int(date_time.value // 10**6)
+
+            # Update last tick timestamp in milliseconds
+            self.close_time_ms = int(date_time.value // 10**6)
 
             # Update high low prices
             self.high_price, self.low_price = self._update_high_low(price)

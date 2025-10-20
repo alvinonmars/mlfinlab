@@ -47,8 +47,8 @@ class TestDataStructures(unittest.TestCase):
                                          to_csv=True, output_path='test.csv')
         db4 = pd.read_csv('test.csv', parse_dates=[0])
 
-        self.assertEqual(db1.shape, (624, 10))
-        #self.assertEqual(db1.shape, (4770, 10))
+        self.assertEqual(db1.shape, (624, 12))
+        #self.assertEqual(db1.shape, (4770, 12))
 
         # Assert diff batch sizes have same number of bars
         self.assertTrue(db1.shape == db2.shape)
@@ -101,7 +101,7 @@ class TestDataStructures(unittest.TestCase):
                                          to_csv=True, output_path='test.csv')
         db4 = pd.read_csv('test.csv', parse_dates=[0])
 
-        self.assertEqual(db1.shape, (624, 10))
+        self.assertEqual(db1.shape, (624, 12))
 
         # Assert diff batch sizes have same number of bars
         self.assertTrue(db1.shape == db2.shape)
@@ -152,7 +152,7 @@ class TestDataStructures(unittest.TestCase):
                                        to_csv=True, output_path='test.csv')
         db4 = pd.read_csv('test.csv', parse_dates=[0])
 
-        self.assertEqual(db1.shape, (3558, 10))
+        self.assertEqual(db1.shape, (3558, 12))
 
         # Assert diff batch sizes have same number of bars
         self.assertTrue(db1.shape == db2.shape)
@@ -208,7 +208,7 @@ class TestDataStructures(unittest.TestCase):
                                          to_csv=True, output_path='test.csv')
         db4 = pd.read_csv('test.csv', parse_dates=[0])
 
-        self.assertEqual(db1.shape, (583, 10))
+        self.assertEqual(db1.shape, (583, 12))
 
         # Assert diff batch sizes have same number of bars
         self.assertTrue(db1.shape == db2.shape)
@@ -260,7 +260,7 @@ class TestDataStructures(unittest.TestCase):
                                            to_csv=True, output_path='test.csv')
         db4 = pd.read_csv('test.csv', parse_dates=[0])
 
-        self.assertEqual(db1.shape, (109, 10))
+        self.assertEqual(db1.shape, (109, 12))
 
         # Assert diff batch sizes have same number of bars
         self.assertTrue(db1.shape == db2.shape)
@@ -312,7 +312,7 @@ class TestDataStructures(unittest.TestCase):
                                            to_csv=True, output_path='test.csv')
         db4 = pd.read_csv('test.csv', parse_dates=[0])
 
-        self.assertEqual(db1.shape, (112, 10))
+        self.assertEqual(db1.shape, (112, 12))
 
         self.assertTrue(np.all(thresh1.cum_theta == thresh2.cum_theta))
 
@@ -366,7 +366,7 @@ class TestDataStructures(unittest.TestCase):
                                          to_csv=True, output_path='test.csv')
         db4 = pd.read_csv('test.csv', parse_dates=[0])
 
-        self.assertEqual(db1.shape, (55, 10))
+        self.assertEqual(db1.shape, (55, 12))
 
         # Assert diff batch sizes have same number of bars
         self.assertTrue(db1.shape == db2.shape)
